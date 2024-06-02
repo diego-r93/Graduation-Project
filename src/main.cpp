@@ -18,11 +18,13 @@
 #include "AD7793.h"
 #include "CN0326.h"
 #include "Communication.h"
+#include "L298PMotorController.h"
 #include "NTPClient.h"
 #include "PHMeter.h"
 #include "PIDController.h"
 #include "SHT3x.h"
 #include "SPIFFS.h"
+#include "ShiftRegister74HC595.h"
 #include "TDSMeter.h"
 #include "Thermistor.h"
 #include "freertos/FreeRTOS.h"
@@ -35,7 +37,7 @@
 
 /*
 Task                         Core  Prio                     Descrição
--------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------
 vTaskUpdate                   0     3     Atualiza as informações através de um POST no MongoDB Atlas
 vTaskCheckWiFi                0     2     Verifica a conexão WiFi e tenta reconectar caso esteja deconectado
 vTaskMqttReconnect            0     2     Verifica a conexão MQTT e tenta reconectar caso esteja deconectado
@@ -47,19 +49,36 @@ vTaskSHT35SensorRead          1     1     Lê o sensor SHT35
 vTaskSHT35DataProcess         1     2     Processa os dados do sensor SHT35 e envia para o servidor
 vTaskPhSensorRead             1     1     Lê o sensor de pH
 vTaskPhDataProcess            1     2     Processa os dados do sensor de pH e envia para o servidor
+vTaskThermistorSensorRead     1     1     Lê o sensor de temperatura do termistor
+vTaskThermistorDataProcess    1     2     Processa os dados do sensor de temperatura do termistor e envia para o servidor
+vTaskTdsSensorRead            1     1     Lê o sensor de TDS
+vTaskTdsDataProcess           1     2     Processa os dados do sensor de TDS e envia para o servidor
+vTaskTdsMotorControl          1     1     Controla o motor da bomba de TDS
+vTaskPhMotorControl           1     1     Controla o motor da bomba de pH
+--------------------------------------------------------------------------------------------------------------------------
 */
 
 // Pump Timers configuration
 #define NUMBER_OUTPUTS 4
 #define ACTIVE_PUMPS 4
+
+// Tasks delays
 #define UPDATE_DELAY 300000
 #define TURN_ON_PUMP_DELAY 100
+
 #define DS18B20_SENSOR_READ_DELAY 500
 #define DS18B20_DATA_PROCESS_DELAY 1000
+
 #define SHT35_SENSOR_READ_DELAY 500
 #define SHT35_DATA_PROCESS_DELAY 1000
+
 #define PH_SENSOR_READ_DELAY 500
 #define PH_DATA_PROCESS_DELAY 5000
+#define PH_MOTOR_CONTROL_DELAY 500
+
+#define TDS_SENSOR_READ_DELAY 500
+#define TDS_DATA_PROCESS_DELAY 1000
+#define TDS_MOTOR_CONTROL_DELAY 100
 
 const uint8_t outputGPIOs[NUMBER_OUTPUTS] = {4, 9, 43, 44};
 
@@ -116,36 +135,82 @@ using namespace McciCatenaSht3x;
 cSHT3x gSht3x{Wire, cSHT3x::Address_t::A};
 cSHT3x::Measurements sht35Data;  // Variável global para armazenar os dados do sensor
 
+// 74HC595 configuration
+const int latchPin = 5;
+const int clockPin = 6;
+const int dataPin = 7;
+
+// Peristaltic Pump configuration
+const int enablePinA = 15;
+const int enablePinB = 16;
+const int enablePinC = 47;
+const int enablePinD = 48;
+
+// Definindo os canais PWM
+const int pwmChannelA = 0;
+const int pwmChannelB = 2;
+const int pwmChannelC = 3;
+const int pwmChannelD = 4;
+
+// L298P Motor Controller configuration
+L298PMotorController motorController1(latchPin, clockPin, dataPin, enablePinA, enablePinB, pwmChannelA, pwmChannelB);
+L298PMotorController motorController2(latchPin, clockPin, dataPin, enablePinC, enablePinD, pwmChannelC, pwmChannelD);
+
 // WebServer configuration
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
 // FreeRTOS configuration
 SemaphoreHandle_t xWifiMutex;
+SemaphoreHandle_t xPIDControllerMutex;
 
+// FreeRTOS Task Handles
 TaskHandle_t UpdateTaskHandle = NULL;
 TaskHandle_t CheckWiFiTaskHandle = NULL;
 TaskHandle_t MqttReconnectTaskHandle = NULL;
 TaskHandle_t NTPTaskHandle = NULL;
 TaskHandle_t TurnOnPumpTaskHandle = NULL;
+
 TaskHandle_t ds18b20SensorReadTaskHandle = NULL;
 TaskHandle_t ds18b20DataProcessTaskHandle = NULL;
+
 TaskHandle_t SHT35SensorReadTaskHandle = NULL;
 TaskHandle_t SHT35DataProcessTaskHandle = NULL;
+
 TaskHandle_t PhSensorReadTaskHandle = NULL;
 TaskHandle_t PhDataProcessTaskHandle = NULL;
+TaskHandle_t PhMotorControlTaskHandle = NULL;
 
+TaskHandle_t TdsSensorReadTaskHandle = NULL;
+TaskHandle_t TdsDataProcessTaskHandle = NULL;
+TaskHandle_t TdsMotorControlTaskHandle = NULL;
+
+TaskHandle_t ThermistorSensorReadTaskHandle = NULL;
+TaskHandle_t ThermistorDataProcessTaskHandle = NULL;
+
+// FreeRTOS Task Functions
 void vTaskUpdate(void* pvParameters);
 void vTaskCheckWiFi(void* pvParametes);
 void vTaskMqttReconnect(void* pvParametes);
 void vTaskNTP(void* pvParameters);
 void vTaskTurnOnPump(void* pvParametes);
+
 void vTaskds18b20SensorRead(void* pvParameters);
 void vTaskds18b20DataProcess(void* pvParameters);
+
 void vTaskSHT35SensorRead(void* pvParameters);
 void vTaskSHT35DataProcess(void* pvParameters);
+
 void vTaskPhSensorRead(void* pvParameters);
 void vTaskPhDataProcess(void* pvParameters);
+void vTaskPhMotorControl(void* pvParameters);
+
+void vTaskTdsSensorRead(void* pvParameters);
+void vTaskTdsDataProcess(void* pvParameters);
+void vTaskTdsMotorControl(void* pvParameters);
+
+void vTaskThermistorSensorRead(void* pvParameters);
+void vTaskThermistorDataProcess(void* pvParameters);
 
 String getDateTime(const RtcDateTime& dt) {
    char datestring[26];
@@ -525,10 +590,20 @@ void initRtos() {
 
    xTaskCreatePinnedToCore(vTaskds18b20SensorRead, "taskds18b20SensorRead", configMINIMAL_STACK_SIZE + 4096, NULL, 1, &ds18b20SensorReadTaskHandle, APP_CPU_NUM);
    xTaskCreatePinnedToCore(vTaskds18b20DataProcess, "taskds18b20DataProcess", configMINIMAL_STACK_SIZE + 4096, NULL, 2, &ds18b20DataProcessTaskHandle, APP_CPU_NUM);
+
    xTaskCreatePinnedToCore(vTaskSHT35SensorRead, "taskSHT35SensorRead", configMINIMAL_STACK_SIZE + 4096, NULL, 1, &SHT35SensorReadTaskHandle, APP_CPU_NUM);
    xTaskCreatePinnedToCore(vTaskSHT35DataProcess, "taskSHT35DataProcess", configMINIMAL_STACK_SIZE + 4096, NULL, 2, &SHT35DataProcessTaskHandle, APP_CPU_NUM);
+
    xTaskCreatePinnedToCore(vTaskPhSensorRead, "pH Meter Task", 4096, NULL, 1, &PhSensorReadTaskHandle, APP_CPU_NUM);
    xTaskCreatePinnedToCore(vTaskPhDataProcess, "pH Data Process Task", 4096, NULL, 2, &PhDataProcessTaskHandle, APP_CPU_NUM);
+   xTaskCreatePinnedToCore(vTaskPhMotorControl, "PH Motor Control", 4096, NULL, 1, &PhMotorControlTaskHandle, APP_CPU_NUM);
+
+   // xTaskCreatePinnedToCore(vTaskTdsSensorRead, "TDS Meter Task", 4096, NULL, 1, &TdsSensorReadTaskHandle, APP_CPU_NUM);
+   // xTaskCreatePinnedToCore(vTaskTdsDataProcess, "TDS Data Process Task", 4096, NULL, 2, &TdsDataProcessTaskHandle, APP_CPU_NUM);
+   xTaskCreatePinnedToCore(vTaskTdsMotorControl, "TDS Motor Control", 4096, NULL, 1, &TdsMotorControlTaskHandle, APP_CPU_NUM);
+
+   // xTaskCreatePinnedToCore(vTaskThermistorSensorRead, "Thermistor Sensor Task", 4096, NULL, 1, &ThermistorSensorReadTaskHandle, APP_CPU_NUM);
+   // xTaskCreatePinnedToCore(vTaskThermistorDataProcess, "Thermistor Data Process Task", 4096, NULL, 2, &ThermistorDataProcessTaskHandle, APP_CPU_NUM);
 
    Serial.println("RTOS initialized");
 }
@@ -608,6 +683,9 @@ void setup() {
    initMqtt();
    initServer();
    initRtos();
+
+   motorController1.begin();
+   motorController2.begin();
 
    Serial.printf("Total heap: %d\n", ESP.getHeapSize());
    Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
@@ -822,8 +900,52 @@ void vTaskPhDataProcess(void* pvParameters) {
    }
 }
 
-// void vTaskPhDataProcess(void* pvParameters) {
-//    while (1) {
-//       vTaskDelay(pdMS_TO_TICKS(PH_DATA_PROCESS_DELAY));
-//    }
-// }
+void vTaskPhMotorControl(void* pvParameters) {
+   motorController1.setMotor1(true);  // Liga o motor 1
+   motorController1.setMotor2(true);  // Liga o motor 2
+
+   int speed = 50;
+   bool increasing = true;
+   while (1) {
+      if (increasing) {
+         speed += 10;
+         if (speed >= 255) increasing = false;
+      } else {
+         speed -= 10;
+         if (speed <= 50) increasing = true;
+      }
+      motorController1.setSpeed(1, speed);
+      motorController1.setSpeed(2, 255 - speed);
+      vTaskDelay(pdMS_TO_TICKS(PH_MOTOR_CONTROL_DELAY));
+   }
+}
+
+void vTaskTdsSensorRead(void* pvParameters) {
+   while (1) {
+      vTaskDelay(pdMS_TO_TICKS(TDS_SENSOR_READ_DELAY));
+   }
+}
+
+void vTaskTdsDataProcess(void* pvParameters) {
+   while (1) {
+      vTaskDelay(pdMS_TO_TICKS(TDS_DATA_PROCESS_DELAY));
+   }
+}
+
+void vTaskTdsMotorControl(void* pvParameters) {  
+   while (1) {  
+      vTaskDelay(pdMS_TO_TICKS(TDS_MOTOR_CONTROL_DELAY));
+   }
+}
+
+void vTaskThermistorSensorRead(void* pvParameters) {
+   while (1) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+   }
+}
+
+void vTaskThermistorDataProcess(void* pvParameters) {
+   while (1) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+   }
+}
