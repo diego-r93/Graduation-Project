@@ -9,8 +9,8 @@ void L298PMotorController::begin() {
    pinMode(enablePinB, OUTPUT);
 
    // Configurando PWM para os pinos de ENABLE
-   ledcSetup(pwmChannelA, 20000, 8);
-   ledcSetup(pwmChannelB, 20000, 8);
+   ledcSetup(pwmChannelA, 15000, 8);
+   ledcSetup(pwmChannelB, 15000, 8);
    ledcAttachPin(enablePinA, pwmChannelA);
    ledcAttachPin(enablePinB, pwmChannelB);
 }

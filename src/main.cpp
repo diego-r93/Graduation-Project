@@ -17,7 +17,6 @@
 
 #include "AD7793.h"
 #include "CN0326.h"
-#include "Communication.h"
 #include "L298PMotorController.h"
 #include "NTPClient.h"
 #include "PHMeter.h"
@@ -915,7 +914,7 @@ void vTaskPhMotorControl(void* pvParameters) {
          if (speed <= 50) increasing = true;
       }
       motorController1.setSpeed(1, speed);
-      motorController1.setSpeed(2, 255 - speed);
+      motorController1.setSpeed(2, speed);
       vTaskDelay(pdMS_TO_TICKS(PH_MOTOR_CONTROL_DELAY));
    }
 }
