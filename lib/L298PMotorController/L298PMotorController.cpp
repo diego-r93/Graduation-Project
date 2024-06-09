@@ -1,36 +1,35 @@
 #include "L298PMotorController.h"
 
-L298PMotorController::L298PMotorController(int latchPin, int clockPin, int dataPin, int enablePinA, int enablePinB, int pwmChannelA, int pwmChannelB)
-    : ShiftRegister74HC595(latchPin, clockPin, dataPin), enablePinA(enablePinA), enablePinB(enablePinB), pwmChannelA(pwmChannelA), pwmChannelB(pwmChannelB), motorStates(0) {}
+L298PMotorController::L298PMotorController(int enablePinA, int enablePinB, int pwmChannelA, int pwmChannelB)
+    : enablePinA(enablePinA), enablePinB(enablePinB), pwmChannelA(pwmChannelA), pwmChannelB(pwmChannelB), useFunctions(false) {}
+
+L298PMotorController::L298PMotorController(int enablePinA, int enablePinB, int pwmChannelA, int pwmChannelB,
+                                           std::function<void(bool)> motor1Func, std::function<void(bool)> motor2Func)
+    : enablePinA(enablePinA), enablePinB(enablePinB), pwmChannelA(pwmChannelA), pwmChannelB(pwmChannelB), motor1ControlFunc(motor1Func), motor2ControlFunc(motor2Func), useFunctions(true) {}
 
 void L298PMotorController::begin() {
-   ShiftRegister74HC595::begin();
    pinMode(enablePinA, OUTPUT);
    pinMode(enablePinB, OUTPUT);
-
-   // Configurando PWM para os pinos de ENABLE
-   ledcSetup(pwmChannelA, 15000, 8);
-   ledcSetup(pwmChannelB, 15000, 8);
+   ledcSetup(pwmChannelA, 20000, 8);
+   ledcSetup(pwmChannelB, 20000, 8);
    ledcAttachPin(enablePinA, pwmChannelA);
    ledcAttachPin(enablePinB, pwmChannelB);
 }
 
 void L298PMotorController::setMotor1(bool isOn) {
-   if (isOn) {
-      motorStates |= 0b00000100;  // Liga os pinos IN1 e IN2 (Q3 e Q2)
+   if (useFunctions && motor1ControlFunc) {
+      motor1ControlFunc(isOn);
    } else {
-      motorStates &= 0b11110011;  // Desliga os pinos IN1 e IN2
+      digitalWrite(enablePinA, isOn ? HIGH : LOW);
    }
-   updateShiftRegister(motorStates);
 }
 
 void L298PMotorController::setMotor2(bool isOn) {
-   if (isOn) {
-      motorStates |= 0b00000001;  // Liga os pinos IN3 e IN4
+   if (useFunctions && motor2ControlFunc) {
+      motor2ControlFunc(isOn);
    } else {
-      motorStates &= 0b11111100;  // Desliga os pinos IN3 e IN4
+      digitalWrite(enablePinB, isOn ? HIGH : LOW);
    }
-   updateShiftRegister(motorStates);
 }
 
 void L298PMotorController::setSpeed(int motor, int speed) {

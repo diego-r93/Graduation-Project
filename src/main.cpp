@@ -139,6 +139,9 @@ const int latchPin = 5;
 const int clockPin = 6;
 const int dataPin = 7;
 
+// ShiftRegister74HC595 configuration
+ShiftRegister74HC595 shiftRegister(latchPin, clockPin, dataPin);
+
 // Peristaltic Pump configuration
 const int enablePinA = 15;
 const int enablePinB = 16;
@@ -147,13 +150,18 @@ const int enablePinD = 48;
 
 // Definindo os canais PWM
 const int pwmChannelA = 0;
-const int pwmChannelB = 2;
-const int pwmChannelC = 3;
-const int pwmChannelD = 4;
+const int pwmChannelB = 1;
+const int pwmChannelC = 2;
+const int pwmChannelD = 3;
 
 // L298P Motor Controller configuration
-L298PMotorController motorController1(latchPin, clockPin, dataPin, enablePinA, enablePinB, pwmChannelA, pwmChannelB);
-L298PMotorController motorController2(latchPin, clockPin, dataPin, enablePinC, enablePinD, pwmChannelC, pwmChannelD);
+L298PMotorController motorController1(enablePinA, enablePinB, pwmChannelA, pwmChannelB,
+                                      shiftRegister.getControlFunctionForMotor1(),   // Função para controlar o pino do motor 1
+                                      shiftRegister.getControlFunctionForMotor2());  // Função para controlar o pino do motor 2
+
+L298PMotorController motorController2(enablePinC, enablePinD, pwmChannelC, pwmChannelD,
+                                      shiftRegister.getControlFunctionForMotor3(),   // Função para controlar o pino do motor 3
+                                      shiftRegister.getControlFunctionForMotor4());  // Função para controlar o pino do motor 4
 
 // WebServer configuration
 AsyncWebServer server(80);
@@ -683,6 +691,8 @@ void setup() {
    initServer();
    initRtos();
 
+   // Inicializando o registrador de deslocamento
+   shiftRegister.begin();
    motorController1.begin();
    motorController2.begin();
 
@@ -844,8 +854,8 @@ void vTaskSHT35SensorRead(void* pvParameters) {
 
 void vTaskSHT35DataProcess(void* pvParameters) {
    while (1) {
-      // Serial.printf("Temperature: %.2f\n", sht35Data.Temperature);
-      // Serial.printf("Humidity: %.2f\n", sht35Data.Humidity);
+      Serial.printf("Temperature: %.2f\n", sht35Data.Temperature);
+      Serial.printf("Humidity: %.2f\n", sht35Data.Humidity);
 
       if (xSemaphoreTake(xWifiMutex, portMAX_DELAY)) {
          if (WiFi.status() == WL_CONNECTED) {
@@ -864,37 +874,42 @@ void vTaskSHT35DataProcess(void* pvParameters) {
 }
 
 void vTaskPhSensorRead(void* pvParameters) {
-   float temp, AVDD;
+   // float internalTemp, AVDD;
    while (1) {
-      // uint32_t ui32adcValue = AD7793_Scan(SINGLE_CONV, AD7793_CH_AIN2P_AIN2M);
-      // Serial.println("ui32adcValue: ");
-      // Serial.println(ui32adcValue);
-
-      // temp = CN0326_CalculateInternalTemp();
+      // internalTemp = CN0326_CalculateInternalTemp();
       // Serial.print("Chip temperature = ");
-      // Serial.print(temp, 2);
+      // Serial.print(internalTemp, 2);
       // Serial.println(" C");
 
       // AVDD = CN0326_CalculateAVDD();
       // Serial.print("Analog supply voltage (AVDD) = ");
       // Serial.print(AVDD, 4);
       // Serial.println(" V");
-      // vTaskDelay(pdMS_TO_TICKS(PH_SENSOR_READ_DELAY));
-      vTaskDelay(pdMS_TO_TICKS(1000));
+      vTaskDelay(pdMS_TO_TICKS(PH_SENSOR_READ_DELAY));
    }
 }
 
 void vTaskPhDataProcess(void* pvParameters) {
    float ph;
    float temp;
+
+   float internalTemp, AVDD;
    while (1) {
-      temp = CN0326_CalculateTemp();
+      internalTemp = CN0326_CalculateInternalTemp();
+      Serial.print("Chip temperature = ");
+      Serial.print(internalTemp, 2);
+      Serial.println(" C");
 
-      printf("Temperature = %.2f[˚C]\n", temp);
+      AVDD = CN0326_CalculateAVDD();
+      Serial.print("Analog supply voltage (AVDD) = ");
+      Serial.print(AVDD, 4);
+      Serial.println(" V");
 
-      ph = CN0326_CalculatePH();
+      // temp = CN0326_CalculateTemp();
+      // printf("Temperature = %.2f[˚C]\n", temp);
 
-      printf("pH = %.2f\n", ph);
+      // ph = CN0326_CalculatePH();
+      // printf("\npH = %.2f\n", ph);
       vTaskDelay(pdMS_TO_TICKS(PH_DATA_PROCESS_DELAY));
    }
 }
@@ -902,6 +917,8 @@ void vTaskPhDataProcess(void* pvParameters) {
 void vTaskPhMotorControl(void* pvParameters) {
    motorController1.setMotor1(true);  // Liga o motor 1
    motorController1.setMotor2(true);  // Liga o motor 2
+   motorController2.setMotor1(true);  // Liga o motor 3
+   motorController2.setMotor2(true);  // Liga o motor 4
 
    int speed = 50;
    bool increasing = true;
@@ -915,6 +932,8 @@ void vTaskPhMotorControl(void* pvParameters) {
       }
       motorController1.setSpeed(1, speed);
       motorController1.setSpeed(2, speed);
+      motorController2.setSpeed(1, speed);
+      motorController2.setSpeed(2, speed);
       vTaskDelay(pdMS_TO_TICKS(PH_MOTOR_CONTROL_DELAY));
    }
 }
@@ -931,8 +950,8 @@ void vTaskTdsDataProcess(void* pvParameters) {
    }
 }
 
-void vTaskTdsMotorControl(void* pvParameters) {  
-   while (1) {  
+void vTaskTdsMotorControl(void* pvParameters) {
+   while (1) {
       vTaskDelay(pdMS_TO_TICKS(TDS_MOTOR_CONTROL_DELAY));
    }
 }

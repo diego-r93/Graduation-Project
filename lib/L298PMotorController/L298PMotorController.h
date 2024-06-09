@@ -2,22 +2,27 @@
 #define L298PMOTORCONTROLLER_H
 
 #include <Arduino.h>
-#include "ShiftRegister74HC595.h"
 
-class L298PMotorController : public ShiftRegister74HC595 {
-public:
-    L298PMotorController(int latchPin, int clockPin, int dataPin, int enablePinA, int enablePinB, int pwmChannelA, int pwmChannelB);
-    void begin();
-    void setMotor1(bool isOn);
-    void setMotor2(bool isOn);
-    void setSpeed(int motor, int speed);
+class L298PMotorController {
+  public:
+   L298PMotorController(int enablePinA, int enablePinB, int pwmChannelA, int pwmChannelB);
+   L298PMotorController(int enablePinA, int enablePinB, int pwmChannelA, int pwmChannelB,
+                        std::function<void(bool)> motor1Func,
+                        std::function<void(bool)> motor2Func);
 
-private:
-    int enablePinA;
-    int enablePinB;
-    int pwmChannelA;
-    int pwmChannelB;
-    byte motorStates;
+   void begin();
+   void setMotor1(bool isOn);
+   void setMotor2(bool isOn);
+   void setSpeed(int motor, int speed);
+
+  private:
+   int enablePinA;
+   int enablePinB;
+   int pwmChannelA;
+   int pwmChannelB;
+   std::function<void(bool)> motor1ControlFunc;
+   std::function<void(bool)> motor2ControlFunc;
+   bool useFunctions;
 };
 
 #endif

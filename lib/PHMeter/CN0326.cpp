@@ -58,7 +58,7 @@ float CN0326_CalculateTemp(void) {
 
    ui32adcValue = AD7793_Scan(SINGLE_CONV, AD7793_CH_AIN2P_AIN2M); /* Read ADC output value */
 
-   Serial.print("ui32adcValue: ");
+   Serial.print("TP1000 ui32adcValue: ");
    Serial.print(ui32adcValue);
 
    f32voltage = AD7793_ConvertToVolts(ui32adcValue); /* Convert ADC output value to voltage */
@@ -90,6 +90,9 @@ float CN0326_CalculatePH(void) {
    temp = CN0326_CalculateTemp(); /* Calculate temperature */
 
    ui32adcValue = AD7793_Scan(SINGLE_CONV, AD7793_CH_AIN1P_AIN1M); /* Read ADC output value */
+
+   Serial.print("PH ui32adcValue: ");
+   Serial.print(ui32adcValue);
 
    i32voltage = AD7793_ConvertToVolts(ui32adcValue); /* Convert ADC output value to voltage */
 
