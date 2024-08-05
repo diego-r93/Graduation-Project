@@ -17,6 +17,7 @@
 
 #include "AD7793.h"
 #include "CN0326.h"
+#include "CN0411.h"
 #include "L298PMotorController.h"
 #include "NTPClient.h"
 #include "PHMeter.h"
@@ -24,7 +25,6 @@
 #include "SHT3x.h"
 #include "SPIFFS.h"
 #include "ShiftRegister74HC595.h"
-#include "TDSMeter.h"
 #include "Thermistor.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -526,6 +526,10 @@ void initPhSensor() {
    CN0326_Init();
 }
 
+void initTdsSensor() {
+   CN0411_init();
+}
+
 void initDS3234() {
    SPI3.begin(PIN_SCK3, PIN_MISO3, PIN_MOSI3, PIN_CS_RTC);
    Rtc.Begin();
@@ -686,6 +690,7 @@ void setup() {
    initDS3234();
    initSHT35();
    initPhSensor();
+   initTdsSensor();
    initds18b20Sensor();
    initMqtt();
    initServer();
@@ -828,8 +833,8 @@ void vTaskds18b20DataProcess(void* pvParameters) {
 
       if (xSemaphoreTake(xWifiMutex, portMAX_DELAY)) {
          if (WiFi.status() == WL_CONNECTED) {
-            String ds18b20Topic = String("sensors/") + String(WiFi.getHostname()) + "/ds18b20";
-            String ds18b20Payload = String("{\"temperature\":") + String(temperatureC) + "}";
+            String ds18b20Topic = String("sensors/") + String(WiFi.getHostname()) + "/ds18b20/temperature";
+            String ds18b20Payload = String(temperatureC);
             if (client.connected()) {
                client.publish(ds18b20Topic.c_str(), ds18b20Payload.c_str());
             }
@@ -859,10 +864,14 @@ void vTaskSHT35DataProcess(void* pvParameters) {
 
       if (xSemaphoreTake(xWifiMutex, portMAX_DELAY)) {
          if (WiFi.status() == WL_CONNECTED) {
-            String sht35Topic = String("sensors/") + String(WiFi.getHostname()) + "/sht35";
-            String sht35Payload = String("{\"temperature\":") + String(sht35Data.Temperature) + ",\"humidity\":" + String(sht35Data.Humidity) + "}";
+            String sht35TempTopic = String("sensors/") + String(WiFi.getHostname()) + "/sht35/temperature";
+            String sht35HumTopic = String("sensors/") + String(WiFi.getHostname()) + "/sht35/humidity";
+            String sht35TempPayload = String(sht35Data.Temperature);
+            String sht35HumPayload = String(sht35Data.Humidity);
+
             if (client.connected()) {
-               client.publish(sht35Topic.c_str(), sht35Payload.c_str());
+               client.publish(sht35TempTopic.c_str(), sht35TempPayload.c_str());
+               client.publish(sht35HumTopic.c_str(), sht35HumPayload.c_str());
             }
          } else {
             Serial.println("No internet connection, skipping data processing.");

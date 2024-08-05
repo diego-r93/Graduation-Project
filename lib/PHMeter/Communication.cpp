@@ -26,13 +26,13 @@
  *******************************************************************************/
 
 void SPI_Init() {
-   ADI_PAR_CS_PIN;
-   ADI_PART_CS_PIN_OUT;
-   ADI_PART_CS_HIGH;
+   CS_AD7793_PIN;
+   CS_AD7793_PIN_OUT;
+   CS_AD7793_PIN_HIGH;
    SDO_PIN;
    SDO_PIN_IN;
 
-   SPI.begin(SCK_PIN, SDO_PIN, SDI_PIN, ADI_PAR_CS_PIN);
+   SPI.begin(SCK_PIN, SDO_PIN, SDI_PIN, CS_AD7793_PIN);
 }
 
 /**
@@ -48,8 +48,8 @@ void SPI_Init() {
 void SPI_Write(uint8_t ui8address, uint32_t ui32data, uint8_t ui8bytes) {
    uint8_t ui8counter, ui8write[ui8bytes];
 
-   ADI_PART_CS_LOW;
-   SPI.beginTransaction(SPI_SETTINGS);
+   CS_AD7793_PIN_LOW;
+   SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE3));
 
    if (ui8bytes != 4) {
       for (ui8counter = 1; ui8counter <= ui8bytes; ui8counter++) {
@@ -70,7 +70,7 @@ void SPI_Write(uint8_t ui8address, uint32_t ui32data, uint8_t ui8bytes) {
    }
 
    SPI.endTransaction();
-   ADI_PART_CS_HIGH;
+   CS_AD7793_PIN_HIGH;
 }
 
 /**
@@ -85,8 +85,8 @@ void SPI_Write(uint8_t ui8address, uint32_t ui32data, uint8_t ui8bytes) {
 uint32_t SPI_Read(uint8_t ui8address, uint8_t ui8bytes) {
    uint32_t ui32AdcCodes = 0;
 
-   ADI_PART_CS_LOW;
-   SPI.beginTransaction(SPI_SETTINGS);
+   CS_AD7793_PIN_LOW;
+   SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE3));
 
    /*  Send read command */
    SPI.transfer(ui8address);
@@ -97,7 +97,7 @@ uint32_t SPI_Read(uint8_t ui8address, uint8_t ui8bytes) {
    }
 
    SPI.endTransaction();
-   ADI_PART_CS_HIGH;
+   CS_AD7793_PIN_HIGH;
 
    return ui32AdcCodes;
 }

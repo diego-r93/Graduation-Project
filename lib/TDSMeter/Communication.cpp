@@ -14,12 +14,13 @@
 
 **/
 void SPI_Init() {
-   SPI.begin();
+   CS_AD7124_PIN_OUT;
+	CS_AD7124_PIN_HIGH;
 
-   pinMode(CS_AD7124_PIN, OUTPUT);
-	digitalWrite(CS_AD7124_PIN, HIGH);
-	pinMode(CS_AD5683_PIN, OUTPUT);
-	digitalWrite(CS_AD5683_PIN, HIGH);
+	CS_AD5683_PIN_OUT;
+   CS_AD5683_PIN_HIGH;
+   
+   SPI.begin();
 }
 
 /**

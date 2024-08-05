@@ -7,17 +7,21 @@
 /* GPIO Definitions                                                           */
 /******************************************************************************/
 
-#define ADI_PAR_CS_PIN 38  // Pin connected to the ADC Chip Select pin (not the SPI library 10 pin, which is not used here)
-#define ADI_PART_CS_PIN_OUT pinMode(ADI_PAR_CS_PIN, OUTPUT)
-#define ADI_PART_CS_LOW digitalWrite(ADI_PAR_CS_PIN, LOW)
-#define ADI_PART_CS_HIGH digitalWrite(ADI_PAR_CS_PIN, HIGH)
-#define SDO_PIN 13  // Pin connected to the ADC Dout/Data Ready pin
-#define SDO_PIN_IN pinMode(SDO_PIN, INPUT)
-#define GPIO1_STATE digitalRead(SDO_PIN)
-#define SPI_SETTINGS SPISettings(4000000, MSBFIRST, SPI_MODE3)  // 4 MHz clock, MSB first, mode 0
+// CS_AD7793
+#define CS_AD7793_PIN 38  // Pin connected to the ADC Chip Select pin (not the SPI library 10 pin, which is not used here)
 
+#define CS_AD7793_PIN_OUT pinMode(CS_AD7793_PIN, OUTPUT)
+
+#define CS_AD7793_PIN_LOW digitalWrite(CS_AD7793_PIN, LOW)
+#define CS_AD7793_PIN_HIGH digitalWrite(CS_AD7793_PIN, HIGH)
+
+#define SDO_PIN 13  // Pin connected to the ADC Dout/Data Ready pin
 #define SDI_PIN 11  // Pin connected to the ADC Din pin
 #define SCK_PIN 12  // Pin connected to the ADC SCLK pin
+
+#define SDO_PIN_IN pinMode(SDO_PIN, INPUT)
+
+#define GPIO1_STATE digitalRead(SDO_PIN)
 
 /*************************** Functions prototypes *****************************/
 void SPI_Init(void);

@@ -103,19 +103,19 @@ uint32_t AD7793_Scan(enMode mode, uint8_t ui8channel) {
 
       ui32reg_value |= (uint32_t)(mode << 13); /* Set single mode operation */
 
-      ADI_PART_CS_LOW;
+      CS_AD7793_PIN_LOW;
 
       AD7793_WriteRegister(AD7793_REG_MODE, ui32reg_value);
    }
 
    if (mode == CONTINUOUS_CONV) {
-      ADI_PART_CS_LOW;
+      CS_AD7793_PIN_LOW;
       while ((AD7793_ReadRegister(AD7793_REG_STAT) & RDY_BIT) == RDY_BIT);
    }  
 
    ui32result = AD7793_ReadRegister(AD7793_REG_DATA);
 
-   ADI_PART_CS_HIGH;
+   CS_AD7793_PIN_HIGH;
 
    return ui32result;
 }
@@ -155,11 +155,11 @@ void AD7793_Calibrate(uint8_t ui8channel, enMode mode) {
 
    ui32reg_value |= (uint32_t)(mode << 13); /* Set mode */
 
-   ADI_PART_CS_LOW;
+   CS_AD7793_PIN_LOW;
 
    AD7793_WriteRegister(AD7793_REG_MODE, ui32reg_value); /* Write MODE register */
 
-   ADI_PART_CS_HIGH;
+   CS_AD7793_PIN_HIGH;
 }
 
 /**
