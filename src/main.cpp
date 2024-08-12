@@ -15,12 +15,14 @@
 #include <WiFiUDP.h>
 #include <Wire.h>
 
-#include "AD7793.h"
-#include "CN0326.h"
+// #include "AD7793.h"
+// #include "CN0326.h"
 #include "CN0411.h"
+#include "Communication.h"
 #include "L298PMotorController.h"
 #include "NTPClient.h"
-#include "PHMeter.h"
+#include "Timer.h"
+// #include "PHMeter.h"
 #include "PIDController.h"
 #include "SHT3x.h"
 #include "SPIFFS.h"
@@ -75,7 +77,7 @@ vTaskPhMotorControl           1     1     Controla o motor da bomba de pH
 #define PH_DATA_PROCESS_DELAY 5000
 #define PH_MOTOR_CONTROL_DELAY 500
 
-#define TDS_SENSOR_READ_DELAY 500
+#define TDS_SENSOR_READ_DELAY 1000
 #define TDS_DATA_PROCESS_DELAY 1000
 #define TDS_MOTOR_CONTROL_DELAY 100
 
@@ -87,6 +89,38 @@ HydraulicPumpController myPumps[ACTIVE_PUMPS] = {
     HydraulicPumpController("code06", outputGPIOs[2], 60000),
     HydraulicPumpController("code07", outputGPIOs[3], 60000),
 };
+
+// CN0411 configuration
+struct cn0411_init_params cn0411_init_params = {
+    CN0411::CH_GAIN_RES_20M,
+    CN0411::ADC_SINGLE_CONV,
+    CN0411::RTD_RES_100,
+    {CN0411::GAIN_RES_20,
+     CN0411::GAIN_RES_200,
+     CN0411::GAIN_RES_2K,
+     CN0411::GAIN_RES_20K,
+     CN0411::GAIN_RES_200K,
+     CN0411::GAIN_RES_2M,
+     CN0411::GAIN_RES_20M},
+    CN0411::OFFSET_RES_INIT,
+    CN0411::DAC_OUT_DEFAULT_VAL,
+    CN0411::EXC_DEFAULT_VAL,
+    CN0411::VR20S_DEFAULT_VAL,
+    CN0411::VR200S_DEFAULT_VAL,
+    CN0411::RDRES_DEFAULT_VAL,
+    CN0411::EXC_DEFAULT_VAL,
+    CN0411::CELL_CONST_NORMAL,
+    CN0411::TEMP_DEFAULT_VAL,
+    CN0411::VPP_DEFAULT_VAL,
+    CN0411::VINP_DEFAULT_VAL,
+    CN0411::VINN_DEFAULT_VAL,
+    CN0411::COND_DEFAULT_VAL,
+    CN0411::COMP_COND_DEFAULT_VAL,
+    CN0411::TDS_DEFAULT_VAL,
+    {CN0411::TEMP_COEFF_NACL,
+     CN0411::TDS_NACL}};
+
+struct cn0411_device cn0411_dev;
 
 // NTP configuration
 #define CHECK_WIFI_DELAY 100
@@ -169,6 +203,7 @@ AsyncWebSocket ws("/ws");
 
 // FreeRTOS configuration
 SemaphoreHandle_t xWifiMutex;
+SemaphoreHandle_t xSPIMutex;
 SemaphoreHandle_t xPIDControllerMutex;
 
 // FreeRTOS Task Handles
@@ -522,12 +557,11 @@ void initSHT35() {
 }
 
 void initPhSensor() {
-   AD7793_Init();
-   CN0326_Init();
+   // AD7793_Init();
+   // CN0326_Init();
 }
 
 void initTdsSensor() {
-   CN0411_init();
 }
 
 void initDS3234() {
@@ -589,6 +623,8 @@ void initPumpConfiguration() {
 
 void initRtos() {
    xWifiMutex = xSemaphoreCreateMutex();
+   xSPIMutex = xSemaphoreCreateMutex();
+   xPIDControllerMutex = xSemaphoreCreateMutex();
 
    xTaskCreatePinnedToCore(vTaskCheckWiFi, "taskCheckWiFi", configMINIMAL_STACK_SIZE + 1024, NULL, 2, &CheckWiFiTaskHandle, PRO_CPU_NUM);
    xTaskCreatePinnedToCore(vTaskMqttReconnect, "taskMqttReconnect", configMINIMAL_STACK_SIZE + 2048, NULL, 2, &MqttReconnectTaskHandle, PRO_CPU_NUM);
@@ -609,8 +645,8 @@ void initRtos() {
    xTaskCreatePinnedToCore(vTaskPhDataProcess, "pH Data Process Task", 4096, NULL, 2, &PhDataProcessTaskHandle, APP_CPU_NUM);
    xTaskCreatePinnedToCore(vTaskPhMotorControl, "PH Motor Control", 4096, NULL, 1, &PhMotorControlTaskHandle, APP_CPU_NUM);
 
-   // xTaskCreatePinnedToCore(vTaskTdsSensorRead, "TDS Meter Task", 4096, NULL, 1, &TdsSensorReadTaskHandle, APP_CPU_NUM);
-   // xTaskCreatePinnedToCore(vTaskTdsDataProcess, "TDS Data Process Task", 4096, NULL, 2, &TdsDataProcessTaskHandle, APP_CPU_NUM);
+   xTaskCreatePinnedToCore(vTaskTdsSensorRead, "TDS Meter Task", 4096, NULL, 1, &TdsSensorReadTaskHandle, APP_CPU_NUM);
+   xTaskCreatePinnedToCore(vTaskTdsDataProcess, "TDS Data Process Task", 4096, NULL, 2, &TdsDataProcessTaskHandle, APP_CPU_NUM);
    xTaskCreatePinnedToCore(vTaskTdsMotorControl, "TDS Motor Control", 4096, NULL, 1, &TdsMotorControlTaskHandle, APP_CPU_NUM);
 
    // xTaskCreatePinnedToCore(vTaskThermistorSensorRead, "Thermistor Sensor Task", 4096, NULL, 1, &ThermistorSensorReadTaskHandle, APP_CPU_NUM);
@@ -669,9 +705,26 @@ void initServer() {
 }
 
 void setup() {
-   // Inicializa a comunicação serial
+   uint32_t ret;
+
+   timer_start();
+
+   // Initialize UART
    Serial.begin(115200);
    while (!Serial);
+
+   // Initialize SPI
+   SPI_Init();
+   if (ret == CN0411::CN0411_FAILURE)
+      return;
+
+   // Initialize CN0411
+   ret = CN0411_init(&cn0411_dev, cn0411_init_params);
+
+   if (ret == CN0411::CN0411_FAILURE) {
+      Serial.print(F("CN0411 Initialization error!\n"));
+      return;
+   }
 
    initSPIFFS();
    initWiFi();
@@ -859,8 +912,8 @@ void vTaskSHT35SensorRead(void* pvParameters) {
 
 void vTaskSHT35DataProcess(void* pvParameters) {
    while (1) {
-      Serial.printf("Temperature: %.2f\n", sht35Data.Temperature);
-      Serial.printf("Humidity: %.2f\n", sht35Data.Humidity);
+      // Serial.printf("Temperature: %.2f\n", sht35Data.Temperature);
+      // Serial.printf("Humidity: %.2f\n", sht35Data.Humidity);
 
       if (xSemaphoreTake(xWifiMutex, portMAX_DELAY)) {
          if (WiFi.status() == WL_CONNECTED) {
@@ -904,15 +957,15 @@ void vTaskPhDataProcess(void* pvParameters) {
 
    float internalTemp, AVDD;
    while (1) {
-      internalTemp = CN0326_CalculateInternalTemp();
-      Serial.print("Chip temperature = ");
-      Serial.print(internalTemp, 2);
-      Serial.println(" C");
+      // internalTemp = CN0326_CalculateInternalTemp();
+      // Serial.print("Chip temperature = ");
+      // Serial.print(internalTemp, 2);
+      // Serial.println(" C");
 
-      AVDD = CN0326_CalculateAVDD();
-      Serial.print("Analog supply voltage (AVDD) = ");
-      Serial.print(AVDD, 4);
-      Serial.println(" V");
+      // AVDD = CN0326_CalculateAVDD();
+      // Serial.print("Analog supply voltage (AVDD) = ");
+      // Serial.print(AVDD, 4);
+      // Serial.println(" V");
 
       // temp = CN0326_CalculateTemp();
       // printf("Temperature = %.2f[˚C]\n", temp);
@@ -949,7 +1002,12 @@ void vTaskPhMotorControl(void* pvParameters) {
 
 void vTaskTdsSensorRead(void* pvParameters) {
    while (1) {
+      if (xSemaphoreTake(xSPIMutex, portMAX_DELAY)) {
+         CN0411_cmd_read_dac(&cn0411_dev);
+         xSemaphoreGive(xSPIMutex);
+      }
       vTaskDelay(pdMS_TO_TICKS(TDS_SENSOR_READ_DELAY));
+
    }
 }
 
