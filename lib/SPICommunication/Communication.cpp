@@ -53,11 +53,11 @@ void SPI_Init() {
    @return none
 
 **/
-int32_t SPI_Write(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8bytes) {
+int32_t SPI_Write(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8_nr_bytes) {
    int32_t ret = 0;
 
-   if (ui8bytes > 4) {
-      ui8bytes = 4;
+   if (ui8_nr_bytes > 4) {
+      ui8_nr_bytes = 4;
    }
 
    /*Clear Slave based on ID */
@@ -74,7 +74,7 @@ int32_t SPI_Write(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8bytes) 
          break;
    }
 
-   SPI.transfer(ui8_buffer, ui8bytes);
+   SPI.transfer(ui8_buffer, ui8_nr_bytes);
    SPI.endTransaction();
 
    /*Set Slave based on ID */
@@ -87,7 +87,7 @@ int32_t SPI_Write(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8bytes) 
          break;
    }
 
-   if (ui8bytes == 0)
+   if (ui8_nr_bytes == 0)
       ret = -1;
 
    return ret;
@@ -103,7 +103,7 @@ int32_t SPI_Write(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8bytes) 
    @return reading result
 
 **/
-int32_t SPI_Read(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8bytes) {
+int32_t SPI_Read(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8_nr_bytes) {
    int32_t ret = 0;
    /*Clear Slave based on ID */
 
@@ -118,7 +118,7 @@ int32_t SPI_Read(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8bytes) {
          break;
    }
 
-   SPI.transfer(ui8_buffer, ui8bytes);
+   SPI.transfer(ui8_buffer, ui8_nr_bytes);
    SPI.endTransaction();
 
    /*Set Slave based on ID */
@@ -131,8 +131,74 @@ int32_t SPI_Read(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8bytes) {
          break;
    }
 
-   if (ui8bytes == 0)
+   if (ui8_nr_bytes == 0)
       ret = -1;
 
    return ret;
+}
+
+/***************************************************************************/ /**
+
+   * @brief Writes data to SPI.
+  *
+  * @param data - Write data buffer:
+  *
+                - first byte is the chip select number;
+  *               - from
+   the second byte onwards are located data bytes to write.
+  * @param bytesNumber
+   - Number of bytes to write.
+  *
+  * @return Number of written bytes.
+ *******************************************************************************/
+unsigned char SPI_Write_PH(unsigned char* data,
+                        unsigned char bytesNumber) {
+   int
+       SCNumber = data[0];
+
+   CS_AD7793_PIN_LOW;
+   SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE3));
+   SPI.transfer(&data[1], bytesNumber);
+   SPI.endTransaction();
+   if (SCNumber == 0x1) {
+      CS_AD7793_PIN_HIGH;
+   }
+   return (bytesNumber);
+}
+
+/***************************************************************************/ /**
+
+   * @brief Reads data from SPI.
+  *
+  * @param data - As an input parameter, data
+   represents the write buffer:
+  *               - first byte is the chip select
+   number;
+  *               - from the second byte onwards are located data bytes
+   to write.
+  *               As an output parameter, data represents the read buffer:
+
+   *               - from the first byte onwards are located the read data bytes.
+
+   * @param bytesNumber - Number of bytes to write.
+  *
+  * @return Number of written
+   bytes.
+ *******************************************************************************/
+unsigned char SPI_Read_PH(unsigned char* data,
+                       unsigned char bytesNumber) {
+   int i = 0;
+
+   CS_AD7793_PIN_LOW;
+   SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE3));
+   int SCNumber = data[0];
+   for (i = 1; i < bytesNumber + 1; i++) {
+      data[i - 1] = SPI.transfer(data[i]);
+   }
+   SPI.endTransaction();
+
+   if (SCNumber == 0x1) {
+      CS_AD7793_PIN_HIGH;
+   }
+   return (bytesNumber);
 }

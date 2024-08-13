@@ -15,7 +15,7 @@
 #include <WiFiUDP.h>
 #include <Wire.h>
 
-// #include "AD7793.h"
+#include "AD7793.h"
 // #include "CN0326.h"
 #include "CN0411.h"
 #include "Communication.h"
@@ -73,12 +73,12 @@ vTaskPhMotorControl           1     1     Controla o motor da bomba de pH
 #define SHT35_SENSOR_READ_DELAY 500
 #define SHT35_DATA_PROCESS_DELAY 1000
 
-#define PH_SENSOR_READ_DELAY 500
+#define PH_SENSOR_READ_DELAY 1000
 #define PH_DATA_PROCESS_DELAY 5000
 #define PH_MOTOR_CONTROL_DELAY 500
 
 #define TDS_SENSOR_READ_DELAY 1000
-#define TDS_DATA_PROCESS_DELAY 1000
+#define TDS_DATA_PROCESS_DELAY 5000
 #define TDS_MOTOR_CONTROL_DELAY 100
 
 const uint8_t outputGPIOs[NUMBER_OUTPUTS] = {4, 9, 43, 44};
@@ -557,7 +557,11 @@ void initSHT35() {
 }
 
 void initPhSensor() {
-   // AD7793_Init();
+   uint8_t answer = AD7793_Init();
+   Serial.print("AD7793 status = ");
+   Serial.println(answer);  // Answer is 1 when the device is initialized and the ID is read and recognized
+   Serial.println("");
+
    // CN0326_Init();
 }
 
@@ -742,8 +746,8 @@ void setup() {
 
    initDS3234();
    initSHT35();
-   initPhSensor();
    initTdsSensor();
+   initPhSensor();
    initds18b20Sensor();
    initMqtt();
    initServer();
@@ -938,15 +942,32 @@ void vTaskSHT35DataProcess(void* pvParameters) {
 void vTaskPhSensorRead(void* pvParameters) {
    // float internalTemp, AVDD;
    while (1) {
-      // internalTemp = CN0326_CalculateInternalTemp();
-      // Serial.print("Chip temperature = ");
-      // Serial.print(internalTemp, 2);
-      // Serial.println(" C");
+      if (xSemaphoreTake(xSPIMutex, portMAX_DELAY)) {
+         // internalTemp = CN0326_CalculateInternalTemp();
+         // Serial.print("Chip temperature = ");
+         // Serial.print(internalTemp, 2);
+         // Serial.println(" C");
 
-      // AVDD = CN0326_CalculateAVDD();
-      // Serial.print("Analog supply voltage (AVDD) = ");
-      // Serial.print(AVDD, 4);
-      // Serial.println(" V");
+         // AVDD = CN0326_CalculateAVDD();
+         // Serial.print("Analog supply voltage (AVDD) = ");
+         // Serial.print(AVDD, 4);
+         // Serial.println(" V");
+         AD7793_SetChannel(AD7793_CH_AVDD_MONITOR);                                       // AVDD Monitor, gain 1/6, internal 1.17V reference
+         unsigned long conv = AD7793_SingleConversion();                                  // Returns the result of a single conversion.
+         float AVDD = ((float)(conv - 0x800000) / ((float)0x800000)) * 1.17 / (1 / 6.0);  // Note: 8388608  = 2exp(23) = 0x8000000 = the output code of 0 V in bipolar mode
+         Serial.print("Analog  supply voltage (AVDD) = ");
+         Serial.print(AVDD, 4);
+         Serial.println("  V");
+
+         AD7793_SetChannel(AD7793_CH_TEMP);                                                          // Temp Sensor, gain 1, Internal  current reference
+         conv = AD7793_SingleConversion();                                                           // Returns the result  of a single conversion.
+         float Temp = (((float)(conv - 0x800000) / ((float)0x800000)) * 1.17 * 1000 / 0.810) - 273;  // Sentitivity is approximately 0.81 mV/Â°K, according  to AD7793 datasheet
+                                                                                                     //  To improve precision, it should be further calibrated by the user.
+         Serial.print("Chip  temperature = ");
+         Serial.print(Temp, 2);
+         Serial.println(" C");
+         xSemaphoreGive(xSPIMutex);
+      }
       vTaskDelay(pdMS_TO_TICKS(PH_SENSOR_READ_DELAY));
    }
 }
@@ -1007,7 +1028,6 @@ void vTaskTdsSensorRead(void* pvParameters) {
          xSemaphoreGive(xSPIMutex);
       }
       vTaskDelay(pdMS_TO_TICKS(TDS_SENSOR_READ_DELAY));
-
    }
 }
 

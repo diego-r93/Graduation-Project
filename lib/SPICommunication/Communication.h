@@ -48,4 +48,9 @@ int32_t SPI_Write(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8_nr_byt
 
 int32_t SPI_Read(uint8_t ui8_slave_id, uint8_t ui8_buffer[], uint8_t ui8_nr_bytes);
 
+/*  Writes data to SPI for PH. */
+unsigned char SPI_Write_PH(unsigned char* data, unsigned char bytesNumber);
+/* Reads data from SPI for PH. */
+unsigned char SPI_Read_PH(unsigned char* data, unsigned char bytesNumber);
+
 #endif  // _COMMUNICATION_H_
