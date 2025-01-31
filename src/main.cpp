@@ -16,13 +16,10 @@
 #include <Wire.h>
 
 #include "AD7793.h"
-// #include "CN0326.h"
-#include "CN0411.h"
+#include "CN0326.h"
 #include "Communication.h"
 #include "L298PMotorController.h"
 #include "NTPClient.h"
-#include "Timer.h"
-// #include "PHMeter.h"
 #include "PIDController.h"
 #include "SHT3x.h"
 #include "SPIFFS.h"
@@ -73,13 +70,13 @@ vTaskPhMotorControl           1     1     Controla o motor da bomba de pH
 #define SHT35_SENSOR_READ_DELAY 500
 #define SHT35_DATA_PROCESS_DELAY 1000
 
-#define PH_SENSOR_READ_DELAY 1000
+#define PH_SENSOR_READ_DELAY 5000
 #define PH_DATA_PROCESS_DELAY 5000
 #define PH_MOTOR_CONTROL_DELAY 500
 
-#define TDS_SENSOR_READ_DELAY 1000
-#define TDS_DATA_PROCESS_DELAY 5000
-#define TDS_MOTOR_CONTROL_DELAY 100
+#define TDS_SENSOR_READ_DELAY 10000
+#define TDS_DATA_PROCESS_DELAY 10000
+#define TDS_MOTOR_CONTROL_DELAY 500
 
 const uint8_t outputGPIOs[NUMBER_OUTPUTS] = {4, 9, 43, 44};
 
@@ -89,38 +86,6 @@ HydraulicPumpController myPumps[ACTIVE_PUMPS] = {
     HydraulicPumpController("code06", outputGPIOs[2], 60000),
     HydraulicPumpController("code07", outputGPIOs[3], 60000),
 };
-
-// CN0411 configuration
-struct cn0411_init_params cn0411_init_params = {
-    CN0411::CH_GAIN_RES_20M,
-    CN0411::ADC_SINGLE_CONV,
-    CN0411::RTD_RES_100,
-    {CN0411::GAIN_RES_20,
-     CN0411::GAIN_RES_200,
-     CN0411::GAIN_RES_2K,
-     CN0411::GAIN_RES_20K,
-     CN0411::GAIN_RES_200K,
-     CN0411::GAIN_RES_2M,
-     CN0411::GAIN_RES_20M},
-    CN0411::OFFSET_RES_INIT,
-    CN0411::DAC_OUT_DEFAULT_VAL,
-    CN0411::EXC_DEFAULT_VAL,
-    CN0411::VR20S_DEFAULT_VAL,
-    CN0411::VR200S_DEFAULT_VAL,
-    CN0411::RDRES_DEFAULT_VAL,
-    CN0411::EXC_DEFAULT_VAL,
-    CN0411::CELL_CONST_NORMAL,
-    CN0411::TEMP_DEFAULT_VAL,
-    CN0411::VPP_DEFAULT_VAL,
-    CN0411::VINP_DEFAULT_VAL,
-    CN0411::VINN_DEFAULT_VAL,
-    CN0411::COND_DEFAULT_VAL,
-    CN0411::COMP_COND_DEFAULT_VAL,
-    CN0411::TDS_DEFAULT_VAL,
-    {CN0411::TEMP_COEFF_NACL,
-     CN0411::TDS_NACL}};
-
-struct cn0411_device cn0411_dev;
 
 // NTP configuration
 #define CHECK_WIFI_DELAY 100
@@ -557,12 +522,8 @@ void initSHT35() {
 }
 
 void initPhSensor() {
-   uint8_t answer = AD7793_Init();
-   Serial.print("AD7793 status = ");
-   Serial.println(answer);  // Answer is 1 when the device is initialized and the ID is read and recognized
-   Serial.println("");
-
-   // CN0326_Init();
+   AD7793_Init();
+   CN0326_Init();
 }
 
 void initTdsSensor() {
@@ -711,24 +672,12 @@ void initServer() {
 void setup() {
    uint32_t ret;
 
-   timer_start();
-
    // Initialize UART
    Serial.begin(115200);
    while (!Serial);
 
    // Initialize SPI
    SPI_Init();
-   if (ret == CN0411::CN0411_FAILURE)
-      return;
-
-   // Initialize CN0411
-   ret = CN0411_init(&cn0411_dev, cn0411_init_params);
-
-   if (ret == CN0411::CN0411_FAILURE) {
-      Serial.print(F("CN0411 Initialization error!\n"));
-      return;
-   }
 
    initSPIFFS();
    initWiFi();
@@ -916,9 +865,6 @@ void vTaskSHT35SensorRead(void* pvParameters) {
 
 void vTaskSHT35DataProcess(void* pvParameters) {
    while (1) {
-      // Serial.printf("Temperature: %.2f\n", sht35Data.Temperature);
-      // Serial.printf("Humidity: %.2f\n", sht35Data.Humidity);
-
       if (xSemaphoreTake(xWifiMutex, portMAX_DELAY)) {
          if (WiFi.status() == WL_CONNECTED) {
             String sht35TempTopic = String("sensors/") + String(WiFi.getHostname()) + "/sht35/temperature";
@@ -940,59 +886,49 @@ void vTaskSHT35DataProcess(void* pvParameters) {
 }
 
 void vTaskPhSensorRead(void* pvParameters) {
-   // float internalTemp, AVDD;
+   float ph, temp, internalTemp, AVDD;
    while (1) {
-      if (xSemaphoreTake(xSPIMutex, portMAX_DELAY)) {
-         // internalTemp = CN0326_CalculateInternalTemp();
-         // Serial.print("Chip temperature = ");
-         // Serial.print(internalTemp, 2);
-         // Serial.println(" C");
+      if (xSemaphoreTake(xWifiMutex, portMAX_DELAY)) {
+         if (WiFi.status() == WL_CONNECTED) {
+            if (xSemaphoreTake(xSPIMutex, portMAX_DELAY)) {
+               AVDD = CN0326_CalculateAVDD();
+               internalTemp = CN0326_CalculateInternalTemp();
+               temp = CN0326_CalculateTemp();
+               ph = CN0326_CalculatePH();
+               xSemaphoreGive(xSPIMutex);
 
-         // AVDD = CN0326_CalculateAVDD();
-         // Serial.print("Analog supply voltage (AVDD) = ");
-         // Serial.print(AVDD, 4);
-         // Serial.println(" V");
-         AD7793_SetChannel(AD7793_CH_AVDD_MONITOR);                                       // AVDD Monitor, gain 1/6, internal 1.17V reference
-         unsigned long conv = AD7793_SingleConversion();                                  // Returns the result of a single conversion.
-         float AVDD = ((float)(conv - 0x800000) / ((float)0x800000)) * 1.17 / (1 / 6.0);  // Note: 8388608  = 2exp(23) = 0x8000000 = the output code of 0 V in bipolar mode
-         Serial.print("Analog  supply voltage (AVDD) = ");
-         Serial.print(AVDD, 4);
-         Serial.println("  V");
+               String phTopic = String("sensors/") + String(WiFi.getHostname()) + "/ph";
+               String phPayload = String(ph);
 
-         AD7793_SetChannel(AD7793_CH_TEMP);                                                          // Temp Sensor, gain 1, Internal  current reference
-         conv = AD7793_SingleConversion();                                                           // Returns the result  of a single conversion.
-         float Temp = (((float)(conv - 0x800000) / ((float)0x800000)) * 1.17 * 1000 / 0.810) - 273;  // Sentitivity is approximately 0.81 mV/Â°K, according  to AD7793 datasheet
-                                                                                                     //  To improve precision, it should be further calibrated by the user.
-         Serial.print("Chip  temperature = ");
-         Serial.print(Temp, 2);
-         Serial.println(" C");
-         xSemaphoreGive(xSPIMutex);
+               String tempTopic = String("sensors/") + String(WiFi.getHostname()) + "/temperature";
+               String tempPayload = String(temp);
+
+               String internalTempTopic = String("sensors/") + String(WiFi.getHostname()) + "/internalTemperature";
+               String internalTempPayload = String(internalTemp);
+
+               String avddTopic = String("sensors/") + String(WiFi.getHostname()) + "/avdd";
+               String avddPayload = String(AVDD);
+
+               if (client.connected()) {
+                  client.publish(phTopic.c_str(), phPayload.c_str());
+                  client.publish(tempTopic.c_str(), tempPayload.c_str());
+                  client.publish(internalTempTopic.c_str(), internalTempPayload.c_str());
+                  client.publish(avddTopic.c_str(), avddPayload.c_str());
+               }
+            } else {
+               Serial.println("Failed to take SPI mutex");
+            }
+         } else {
+            Serial.println("No internet connection, skipping data processing.");
+         }
+         xSemaphoreGive(xWifiMutex);
       }
       vTaskDelay(pdMS_TO_TICKS(PH_SENSOR_READ_DELAY));
    }
 }
 
 void vTaskPhDataProcess(void* pvParameters) {
-   float ph;
-   float temp;
-
-   float internalTemp, AVDD;
    while (1) {
-      // internalTemp = CN0326_CalculateInternalTemp();
-      // Serial.print("Chip temperature = ");
-      // Serial.print(internalTemp, 2);
-      // Serial.println(" C");
-
-      // AVDD = CN0326_CalculateAVDD();
-      // Serial.print("Analog supply voltage (AVDD) = ");
-      // Serial.print(AVDD, 4);
-      // Serial.println(" V");
-
-      // temp = CN0326_CalculateTemp();
-      // printf("Temperature = %.2f[˚C]\n", temp);
-
-      // ph = CN0326_CalculatePH();
-      // printf("\npH = %.2f\n", ph);
       vTaskDelay(pdMS_TO_TICKS(PH_DATA_PROCESS_DELAY));
    }
 }
@@ -1024,7 +960,6 @@ void vTaskPhMotorControl(void* pvParameters) {
 void vTaskTdsSensorRead(void* pvParameters) {
    while (1) {
       if (xSemaphoreTake(xSPIMutex, portMAX_DELAY)) {
-         CN0411_cmd_read_dac(&cn0411_dev);
          xSemaphoreGive(xSPIMutex);
       }
       vTaskDelay(pdMS_TO_TICKS(TDS_SENSOR_READ_DELAY));
